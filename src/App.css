@@ -1,0 +1,52 @@
+.shell {
+  width: min(1080px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 36px 0 72px;
+}
+
+.shell__main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.shell__main > * {
+  min-width: 0;
+}
+
+.placeholder {
+  padding: 28px 32px 32px;
+}
+
+.placeholder h2 {
+  font-size: 32px;
+  letter-spacing: -0.03em;
+}
+
+.placeholder p {
+  margin-top: 8px;
+  max-width: 62ch;
+  color: var(--muted);
+}
+
+.placeholder__status {
+  display: inline-flex;
+  margin-top: 18px;
+  padding: 6px 12px;
+  border: 1px solid var(--warn-line);
+  border-radius: 999px;
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .shell {
+    width: min(1080px, calc(100% - 20px));
+    padding-top: 20px;
+  }
+
+  .placeholder {
+    padding: 22px 18px;
+  }
+}
