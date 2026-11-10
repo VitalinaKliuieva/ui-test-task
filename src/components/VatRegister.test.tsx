@@ -145,4 +145,46 @@ describe('VatRegister', () => {
     expect(screen.getByRole('cell', { name: 'Demo Alfa 14' })).toBeInTheDocument()
     expect(screen.getByText('1–14 z 14 zapisów')).toBeInTheDocument()
   })
+
+  it('sorts a column, moves it, and closes the confirmation banner', async () => {
+    const user = userEvent.setup()
+    renderRegister()
+
+    expect(screen.getByText(/Kontekst VAT wymaga potwierdzenia. Poniżej/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Zamknij' }))
+    expect(screen.queryByText(/Kontekst VAT wymaga potwierdzenia. Poniżej/)).not.toBeInTheDocument()
+
+    const contractor = screen.getByRole('columnheader', { name: 'Kontrahent' })
+    await user.click(within(contractor).getByRole('button', { name: 'Kontrahent' }))
+    await user.click(within(contractor).getByRole('button', { name: 'Kontrahent' }))
+    expect(contractor).toHaveAttribute('aria-sort', 'descending')
+    expect(screen.getByRole('cell', { name: 'Demo Alfa 14' })).toBeInTheDocument()
+    expect(screen.queryByRole('cell', { name: 'Demo Alfa 01' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Więcej' }))
+    await user.click(screen.getByRole('button', { name: 'Niżej Kontrahent' }))
+    await user.click(screen.getByRole('button', { name: 'Serie dokumentów' }))
+    const headers = screen.getAllByRole('columnheader')
+    expect(headers[0]).toHaveAccessibleName('Data')
+    expect(headers[1]).toHaveAccessibleName('Kontrahent')
+    expect(screen.getByText(/Aktywna seria demonstracyjna: DEMO/)).toBeInTheDocument()
+  })
+
+  it('removes one filter chip and leaves the other filters in place', async () => {
+    const user = userEvent.setup()
+    renderRegister()
+
+    await user.click(screen.getByRole('button', { name: 'Filtry' }))
+    await user.selectOptions(screen.getByLabelText('Miesiąc'), '1')
+    await user.selectOptions(screen.getByLabelText('Kod JPK V7'), 'K_10')
+    await user.click(screen.getByRole('button', { name: 'Zastosuj' }))
+
+    expect(screen.getByRole('button', { name: 'Usuń styczeń' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Usuń K_10' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Usuń styczeń' }))
+    expect(screen.queryByRole('button', { name: 'Usuń styczeń' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Usuń K_10' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: 'Demo Alfa 04' })).toBeInTheDocument()
+    expect(screen.queryByRole('cell', { name: 'Demo Alfa 01' })).not.toBeInTheDocument()
+  })
 })

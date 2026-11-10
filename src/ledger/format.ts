@@ -1,8 +1,9 @@
+const THOUSANDS = /\B(?=(\d{3})+(?!\d))/g
+
 export function formatMoney(value: number): string {
   const negative = value < 0
   const [whole, fraction] = Math.abs(value).toFixed(2).split('.')
-  const grouped =
-    whole.length > 4 ? whole.replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0') : whole
+  const grouped = whole.length > 4 ? whole.replace(THOUSANDS, '\u00a0') : whole
   return `${negative ? '-' : ''}${grouped},${fraction} zł`
 }
 

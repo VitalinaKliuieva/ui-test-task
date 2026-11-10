@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Icon } from './Icon.tsx'
 import { ledgerEntries } from '../ledger/entries.ts'
 import { formatMoney, MONTHS, PAGE_SIZES, YEARS } from '../ledger/format.ts'
@@ -19,6 +19,10 @@ const COLUMNS: readonly { key: SortKey; label: string }[] = [
   { key: 'ksefStatus', label: 'Numer KSeF' },
   { key: 'identifier', label: 'Identyfikator' },
 ]
+
+const COLUMN_LABEL = Object.fromEntries(
+  COLUMNS.map((column) => [column.key, column.label]),
+) as Record<SortKey, string>
 
 const RATES: readonly VatRate[] = ['23%', 'np']
 
@@ -56,17 +60,36 @@ type Draft = {
 
 const instant = import.meta.env.MODE === 'test'
 
-function useMaxWidth(query: string): boolean {
-  const [matches, setMatches] = useState(false)
+const PHONE_QUERY = '(max-width: 767px)'
+const TABLET_QUERY = '(max-width: 1100px)'
+
+function readBreakpoints(): { phone: boolean; tablet: boolean } {
+  if (typeof window.matchMedia !== 'function') return { phone: false, tablet: false }
+  return {
+    phone: window.matchMedia(PHONE_QUERY).matches,
+    tablet: window.matchMedia(TABLET_QUERY).matches,
+  }
+}
+
+function useBreakpoints(): { phone: boolean; tablet: boolean } {
+  const [matches, setMatches] = useState(readBreakpoints)
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
-    const media = window.matchMedia(query)
-    const apply = () => setMatches(media.matches)
-    apply()
-    media.addEventListener('change', apply)
-    return () => media.removeEventListener('change', apply)
-  }, [query])
+    const phoneQuery = window.matchMedia(PHONE_QUERY)
+    const tabletQuery = window.matchMedia(TABLET_QUERY)
+    const apply = () =>
+      setMatches((current) => {
+        const next = { phone: phoneQuery.matches, tablet: tabletQuery.matches }
+        return current.phone === next.phone && current.tablet === next.tablet ? current : next
+      })
+    phoneQuery.addEventListener('change', apply)
+    tabletQuery.addEventListener('change', apply)
+    return () => {
+      phoneQuery.removeEventListener('change', apply)
+      tabletQuery.removeEventListener('change', apply)
+    }
+  }, [])
 
   return matches
 }
@@ -109,7 +132,7 @@ function downloadCsv(entries: readonly VatEntry[]) {
 }
 
 function columnLabel(key: SortKey): string {
-  return COLUMNS.find((column) => column.key === key)?.label ?? key
+  return COLUMN_LABEL[key]
 }
 
 export function VatRegister({ entries = ledgerEntries }: { entries?: readonly VatEntry[] }) {
@@ -135,12 +158,22 @@ export function VatRegister({ entries = ledgerEntries }: { entries?: readonly Va
   })
   const rootRef = useRef<HTMLElement>(null)
   const timer = useRef<number | null>(null)
-  const phone = useMaxWidth('(max-width: 767px)')
-  const tablet = useMaxWidth('(max-width: 1100px)')
+  const { phone, tablet } = useBreakpoints()
+  const toggleRow = useCallback((id: string) => {
+    dispatch({ type: 'toggleRow', id })
+  }, [])
+  const changeOperation = useCallback((id: string, operation: VatEntry['operation']) => {
+    setOperationOverrides((current) => ({ ...current, [id]: operation }))
+  }, [])
 
   useEffect(() => {
     if (columnsTouched) return
-    setHidden(tablet && !phone ? ['identifier'] : [])
+    const next: SortKey[] = tablet && !phone ? ['identifier'] : []
+    setHidden((current) =>
+      current.length === next.length && current.every((key, index) => key === next[index])
+        ? current
+        : next,
+    )
   }, [columnsTouched, phone, tablet])
 
   useEffect(
@@ -175,17 +208,30 @@ export function VatRegister({ entries = ledgerEntries }: { entries?: readonly Va
     }, 420)
   }
 
-  const resolved = entries.map((entry) =>
-    withOperation(entry, operationOverrides[entry.id] ?? entry.operation),
+  const resolved = useMemo(
+    () =>
+      Object.keys(operationOverrides).length === 0
+        ? entries
+        : entries.map((entry) =>
+            withOperation(entry, operationOverrides[entry.id] ?? entry.operation),
+          ),
+    [entries, operationOverrides],
   )
-  const ordered = visibleEntries(resolved, state)
+  const ordered = useMemo(() => visibleEntries(resolved, state), [resolved, state])
   const pageCount = Math.max(1, Math.ceil(ordered.length / state.pageSize))
   const page = Math.min(state.page, pageCount)
   const start = (page - 1) * state.pageSize
   const pageRows = ordered.slice(start, start + state.pageSize)
-  const visibleKeys = order.filter((key) => !hidden.includes(key))
-  const summarySource = view === 'empty' || ordered.length === 0 ? [] : ordered
-  const summary = summarize(summarySource)
+  const hiddenSet = useMemo(() => new Set(hidden), [hidden])
+  const visibleKeys = useMemo(
+    () => order.filter((key) => !hiddenSet.has(key)),
+    [order, hiddenSet],
+  )
+  const summary = useMemo(
+    () => summarize(view === 'empty' || ordered.length === 0 ? [] : ordered),
+    [ordered, view],
+  )
+  const rateMax = Math.max(1, ...RATES.map((rate) => summary.byRate.get(rate) ?? 0))
   const operations = REGISTER_OPERATIONS[state.tab]
   const listReplaced = view !== 'data' || ordered.length === 0
   const showPager = view === 'data' && ordered.length > 0
@@ -222,10 +268,13 @@ export function VatRegister({ entries = ledgerEntries }: { entries?: readonly Va
     const next = draft
     setFiltersOpen(false)
     settle(() => {
-      dispatch({ type: 'year', value: next.year })
-      dispatch({ type: 'month', value: next.month })
-      dispatch({ type: 'operation', value: next.operation })
-      dispatch({ type: 'jpkCode', value: next.jpkCode })
+      dispatch({
+        type: 'filters',
+        year: next.year,
+        month: next.month,
+        operation: next.operation,
+        jpkCode: next.jpkCode,
+      })
     })
   }
 
@@ -470,7 +519,7 @@ export function VatRegister({ entries = ledgerEntries }: { entries?: readonly Va
                   <input
                     type="checkbox"
                     aria-label={columnLabel(key)}
-                    checked={!hidden.includes(key)}
+                    checked={!hiddenSet.has(key)}
                     onChange={() => toggleColumn(key)}
                   />
                   <button
@@ -633,15 +682,11 @@ export function VatRegister({ entries = ledgerEntries }: { entries?: readonly Va
           <span className="badge badge-demo">VAT · DEMO</span>
           {RATES.map((rate) => {
             const amount = summary.byRate.get(rate) ?? 0
-            const max = Math.max(
-              ...RATES.map((item) => summary.byRate.get(item) ?? 0),
-              1,
-            )
             return (
               <div key={rate} className="vat__rate">
                 <span>{rate}</span>
                 <span className="vat__bar" aria-hidden="true">
-                  <span style={{ width: `${(amount / max) * 100}%` }} />
+                  <span style={{ width: `${(amount / rateMax) * 100}%` }} />
                 </span>
                 <span>{formatMoney(amount)}</span>
               </div>
@@ -716,10 +761,8 @@ export function VatRegister({ entries = ledgerEntries }: { entries?: readonly Va
                   columns={visibleKeys}
                   choices={operations}
                   expanded={state.expandedId === entry.id}
-                  onToggle={() => dispatch({ type: 'toggleRow', id: entry.id })}
-                  onOperation={(operation) =>
-                    setOperationOverrides((current) => ({ ...current, [entry.id]: operation }))
-                  }
+                  onToggle={toggleRow}
+                  onOperation={changeOperation}
                 />
               ))
             )}
@@ -800,7 +843,7 @@ export function VatRegister({ entries = ledgerEntries }: { entries?: readonly Va
   )
 }
 
-function RegisterRow({
+const RegisterRow = memo(function RegisterRow({
   entry,
   columns,
   choices,
@@ -812,8 +855,8 @@ function RegisterRow({
   columns: readonly SortKey[]
   choices: readonly VatEntry['operation'][]
   expanded: boolean
-  onToggle: () => void
-  onOperation: (operation: VatEntry['operation']) => void
+  onToggle: (id: string) => void
+  onOperation: (id: string, operation: VatEntry['operation']) => void
 }) {
   return (
     <>
@@ -829,7 +872,7 @@ function RegisterRow({
             className="btn-ghost"
             aria-expanded={expanded}
             aria-label={`Szczegóły ${entry.contractor}`}
-            onClick={onToggle}
+            onClick={() => onToggle(entry.id)}
           >
             <Icon name="expand" />
           </button>
@@ -872,7 +915,7 @@ function RegisterRow({
                           entry.operation === operation ? 'vat__op-choice is-selected' : 'vat__op-choice'
                         }
                         aria-checked={entry.operation === operation}
-                        onClick={() => onOperation(operation)}
+                        onClick={() => onOperation(entry.id, operation)}
                       >
                         {operation}
                       </button>
@@ -894,4 +937,4 @@ function RegisterRow({
       ) : null}
     </>
   )
-}
+})

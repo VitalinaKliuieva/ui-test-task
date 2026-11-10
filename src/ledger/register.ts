@@ -17,7 +17,6 @@ export const initialRegisterState: RegisterState = {
   page: 1,
   pageSize: 10,
   expandedId: null,
-  compact: false,
   seriesOpen: false,
 }
 
@@ -28,8 +27,8 @@ export type RegisterAction =
   | { type: 'sort'; key: SortKey }
   | { type: 'page'; page: number }
   | { type: 'pageSize'; pageSize: number }
+  | { type: 'filters'; year: string; month: string; operation: string; jpkCode: string }
   | { type: 'toggleRow'; id: string }
-  | { type: 'toggleCompact' }
   | { type: 'toggleSeries' }
   | { type: 'resetFilters' }
   | { type: 'reset' }
@@ -68,13 +67,18 @@ export function registerReducer(state: RegisterState, action: RegisterAction): R
       return { ...state, page: action.page, expandedId: null }
     case 'pageSize':
       return narrow(state, { pageSize: action.pageSize })
+    case 'filters':
+      return narrow(state, {
+        year: action.year,
+        month: action.month,
+        operation: action.operation,
+        jpkCode: action.jpkCode,
+      })
     case 'toggleRow':
       return {
         ...state,
         expandedId: state.expandedId === action.id ? null : action.id,
       }
-    case 'toggleCompact':
-      return { ...state, compact: !state.compact }
     case 'toggleSeries':
       return { ...state, seriesOpen: !state.seriesOpen }
     case 'resetFilters':
@@ -101,10 +105,12 @@ export function visibleEntries(entries: readonly VatEntry[], state: RegisterStat
     if (state.operation !== 'all' && entry.operation !== state.operation) return false
     if (state.jpkCode !== 'all' && entry.jpkCode !== state.jpkCode) return false
     if (query.length === 0) return true
-    return [entry.contractor, entry.documentNumber, entry.identifier, entry.ksefStatus]
-      .join(' ')
-      .toLowerCase()
-      .includes(query)
+    return (
+      entry.contractor.toLowerCase().includes(query) ||
+      entry.documentNumber.toLowerCase().includes(query) ||
+      entry.identifier.toLowerCase().includes(query) ||
+      entry.ksefStatus.toLowerCase().includes(query)
+    )
   })
 
   const direction = state.sortDirection === 'asc' ? 1 : -1
@@ -119,21 +125,6 @@ export type RegisterSummary = {
   vat: number
   gross: number
   byRate: ReadonlyMap<VatRate, number>
-}
-
-export function countPeriod(
-  entries: readonly VatEntry[],
-  year: string,
-  month: string,
-): { salesCount: number; purchaseCount: number } {
-  let salesCount = 0
-  let purchaseCount = 0
-  for (const entry of entries) {
-    if (String(entry.year) !== year || String(entry.month) !== month) continue
-    if (entry.register === 'sale') salesCount += 1
-    else purchaseCount += 1
-  }
-  return { salesCount, purchaseCount }
 }
 
 export function summarize(entries: readonly VatEntry[]): RegisterSummary {

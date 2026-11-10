@@ -38,6 +38,5 @@ export type RegisterState = {
   page: number
   pageSize: number
   expandedId: string | null
-  compact: boolean
   seriesOpen: boolean
 }
