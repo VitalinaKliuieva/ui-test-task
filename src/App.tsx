@@ -42,14 +42,26 @@ export default function App() {
     setTheme(next)
   }
 
+  function openVat() {
+    setArea('vat')
+    requestAnimationFrame(() => {
+      const target = document.getElementById('vat-screen')
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    })
+  }
+
   return (
     <div className="shell">
       <WelcomeBar theme={theme} onThemeToggle={toggleTheme} />
       <main className="shell__main">
-        <AccountingAreas activeArea={area} onAreaChange={setArea} />
+        <AccountingAreas activeArea={area} onAreaChange={setArea} onOpenVat={openVat} />
         {area === 'vat' ? (
-          <div id="area-panel" role="tabpanel" aria-labelledby="area-tab-vat">
-            <VatRegister entries={ledgerEntries} />
+          <div id="vat-screen">
+            <div id="area-panel" role="tabpanel" aria-labelledby="area-tab-vat">
+              <VatRegister entries={ledgerEntries} />
+            </div>
           </div>
         ) : (
           <AreaPlaceholder area={area} />

@@ -1,13 +1,14 @@
-import { Fragment, useReducer } from 'react'
+import { Fragment, useReducer, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { MONTHS, PAGE_SIZES, YEARS, formatMoney } from '../ledger/format.ts'
 import {
+  REGISTER_OPERATIONS,
   initialRegisterState,
   registerReducer,
   summarize,
   visibleEntries,
 } from '../ledger/register.ts'
-import type { SortKey, VatEntry, VatRate } from '../ledger/types.ts'
+import type { RegisterKind, SortKey, VatEntry, VatRate } from '../ledger/types.ts'
 import { Icon } from './Icon.tsx'
 import './VatRegister.css'
 
@@ -19,13 +20,6 @@ const COLUMNS: readonly { key: SortKey; label: string }[] = [
   { key: 'identifier', label: 'Identyfikator' },
 ]
 
-const OPERATIONS = [
-  { value: 'all', label: 'Wszystkie' },
-  { value: 'Faktura', label: 'Faktura' },
-  { value: 'Korekta', label: 'Korekta' },
-  { value: 'Zakup', label: 'Zakup' },
-] as const
-
 const JPK_CODES = [
   { value: 'all', label: 'Wszystkie' },
   { value: 'K_19', label: 'K_19' },
@@ -34,8 +28,30 @@ const JPK_CODES = [
 
 const RATES: readonly VatRate[] = ['23%', 'np']
 
+function operationsFor(register: RegisterKind): readonly VatEntry['operation'][] {
+  return REGISTER_OPERATIONS[register]
+}
+
+const DOCUMENT_PREFIX: Record<VatEntry['operation'], string> = {
+  Korekta: 'KOR',
+  Faktura: 'FV',
+  Zakup: 'FZ',
+}
+
+function withOperation(entry: VatEntry, operation: VatEntry['operation']): VatEntry {
+  if (operation === entry.operation || !operationsFor(entry.register).includes(operation)) return entry
+  return {
+    ...entry,
+    operation,
+    documentNumber: entry.documentNumber.replace(/^(KOR|FV|FZ)/, DOCUMENT_PREFIX[operation]),
+  }
+}
+
 type VatRegisterProps = {
   entries: readonly VatEntry[]
+  year?: string
+  month?: string
+  onPeriodChange?: (period: { year: string; month: string }) => void
 }
 
 function entriesToCsv(entries: readonly VatEntry[]): string {
@@ -74,9 +90,13 @@ function downloadCsv(entries: readonly VatEntry[]) {
   URL.revokeObjectURL(url)
 }
 
-export function VatRegister({ entries }: VatRegisterProps) {
+export function VatRegister({ entries, year: yearProp, month: monthProp, onPeriodChange }: VatRegisterProps) {
   const [state, dispatch] = useReducer(registerReducer, initialRegisterState)
-  const ordered = visibleEntries(entries, state)
+  const [operations, setOperations] = useState<Record<string, VatEntry['operation']>>({})
+  const year = yearProp ?? state.year
+  const month = monthProp ?? state.month
+  const resolved = entries.map((entry) => withOperation(entry, operations[entry.id] ?? entry.operation))
+  const ordered = visibleEntries(resolved, { ...state, year, month })
   const summary = summarize(ordered)
   const pageCount = Math.max(1, Math.ceil(ordered.length / state.pageSize))
   const page = Math.min(state.page, pageCount)
@@ -87,6 +107,14 @@ export function VatRegister({ entries }: VatRegisterProps) {
   const rangeLabel =
     ordered.length === 0 ? '0 z 0 zapisów' : `${from}–${to} z ${ordered.length} zapisów`
   const tabLabel = state.tab === 'sale' ? 'Rejestr VAT sprzedaży' : 'Rejestr VAT zakupów'
+  const rowOperations = operationsFor(state.tab)
+  const operationFilters = ['all' as const, ...rowOperations]
+  const filtersActive =
+    state.search.length > 0 ||
+    year !== initialRegisterState.year ||
+    month !== initialRegisterState.month ||
+    state.operation !== initialRegisterState.operation ||
+    state.jpkCode !== initialRegisterState.jpkCode
 
   return (
     <section className={state.compact ? 'card vat is-compact' : 'card vat'} aria-labelledby="vat-title">
@@ -146,31 +174,62 @@ export function VatRegister({ entries }: VatRegisterProps) {
             onChange={(event) => dispatch({ type: 'search', value: event.target.value })}
           />
         </label>
-        <button type="button" className="vat__icon-button" aria-label="Odśwież podgląd" onClick={() => dispatch({ type: 'reset' })}>
-          <Icon name="refresh" />
-        </button>
-        <button type="button" className="vat__icon-button" aria-label="Drukuj rejestr" onClick={() => window.print()}>
-          <Icon name="print" />
-        </button>
-        <button type="button" className="vat__icon-button" aria-label="Pobierz CSV" onClick={() => downloadCsv(ordered)}>
-          <Icon name="download" />
-        </button>
-        <button
-          type="button"
-          className="vat__icon-button"
-          aria-pressed={state.compact}
-          aria-label={state.compact ? 'Pokaż wygodny widok' : 'Pokaż zwarty widok'}
-          onClick={() => dispatch({ type: 'toggleCompact' })}
-        >
-          <Icon name="expand" />
-        </button>
+        <div className="vat__tools">
+          <button type="button" className="vat__icon-button" aria-label="Drukuj rejestr" onClick={() => window.print()}>
+            <Icon name="print" />
+          </button>
+          <button type="button" className="vat__icon-button" aria-label="Pobierz CSV" onClick={() => downloadCsv(ordered)}>
+            <Icon name="download" />
+          </button>
+          <button
+            type="button"
+            className="vat__icon-button"
+            aria-label="Odśwież podgląd"
+            onClick={() => {
+              dispatch({ type: 'reset' })
+              setOperations({})
+              onPeriodChange?.({
+                year: initialRegisterState.year,
+                month: initialRegisterState.month,
+              })
+            }}
+          >
+            <Icon name="refresh" />
+          </button>
+          <span className="vat__tool-divider" aria-hidden="true" />
+          <button
+            type="button"
+            className="vat__icon-button"
+            aria-expanded={state.seriesOpen}
+            aria-label="Serie dokumentów"
+            onClick={() => dispatch({ type: 'toggleSeries' })}
+          >
+            <Icon name="tag" />
+          </button>
+          <button
+            type="button"
+            className="vat__icon-button"
+            aria-pressed={state.compact}
+            aria-label={state.compact ? 'Pokaż wygodny widok' : 'Pokaż zwarty widok'}
+            onClick={() => dispatch({ type: 'toggleCompact' })}
+          >
+            <Icon name="expand" />
+          </button>
+        </div>
       </form>
 
       <div className="vat__filters">
         <div className="vat__filter-grid">
           <label className="field">
             Rok
-            <select value={state.year} onChange={(event) => dispatch({ type: 'year', value: event.target.value })}>
+            <select
+              value={year}
+              onChange={(event) => {
+                const value = event.target.value
+                dispatch({ type: 'year', value })
+                onPeriodChange?.({ year: value, month })
+              }}
+            >
               {YEARS.map((year) => (
                 <option key={year} value={year}>
                   {year}
@@ -180,7 +239,14 @@ export function VatRegister({ entries }: VatRegisterProps) {
           </label>
           <label className="field">
             Miesiąc
-            <select value={state.month} onChange={(event) => dispatch({ type: 'month', value: event.target.value })}>
+            <select
+              value={month}
+              onChange={(event) => {
+                const value = event.target.value
+                dispatch({ type: 'month', value })
+                onPeriodChange?.({ year, month: value })
+              }}
+            >
               {MONTHS.map((month) => (
                 <option key={month.value} value={month.value}>
                   {month.label}
@@ -194,9 +260,9 @@ export function VatRegister({ entries }: VatRegisterProps) {
               value={state.operation}
               onChange={(event) => dispatch({ type: 'operation', value: event.target.value })}
             >
-              {OPERATIONS.map((operation) => (
-                <option key={operation.value} value={operation.value}>
-                  {operation.label}
+              {operationFilters.map((operation) => (
+                <option key={operation} value={operation}>
+                  {operation === 'all' ? 'Wszystkie' : operation}
                 </option>
               ))}
             </select>
@@ -229,7 +295,14 @@ export function VatRegister({ entries }: VatRegisterProps) {
             type="button"
             className="vat__clear"
             aria-label="Wyczyść filtry"
-            onClick={() => dispatch({ type: 'resetFilters' })}
+            disabled={!filtersActive}
+            onClick={() => {
+              dispatch({ type: 'resetFilters' })
+              onPeriodChange?.({
+                year: initialRegisterState.year,
+                month: initialRegisterState.month,
+              })
+            }}
           >
             <Icon name="filter" />
           </button>
@@ -267,7 +340,10 @@ export function VatRegister({ entries }: VatRegisterProps) {
           <div className="vat__rate" key={rate}>
             <span className={rate === 'np' ? 'vat__rate-label is-quiet' : 'vat__rate-label'}>{rate}</span>
             <span className="vat__track" aria-hidden="true">
-              <span className="vat__fill" style={{ '--fill': `${width}%` } as CSSProperties} />
+              <span
+                className={rate === 'np' ? 'vat__fill is-quiet' : 'vat__fill'}
+                style={{ '--fill': `${width}%` } as CSSProperties}
+              />
             </span>
             <span className="vat__rate-amount">{formatMoney(amount)}</span>
           </div>
@@ -306,16 +382,25 @@ export function VatRegister({ entries }: VatRegisterProps) {
             ) : (
               pageRows.map((entry) => {
                 const open = state.expandedId === entry.id
+                const correction = entry.operation === 'Korekta'
                 return (
                   <Fragment key={entry.id}>
-                    <tr>
-                      <td>{entry.contractor}</td>
-                      <td>{entry.date}</td>
-                      <td>{entry.documentNumber}</td>
+                    <tr className={correction ? 'is-correction' : undefined}>
                       <td>
-                        <span className="vat__ksef">{entry.ksefStatus}</span>
+                        {entry.contractor}
+                        <span className={correction ? 'vat__op is-correction' : 'vat__op'} aria-hidden="true">
+                          {entry.operation}
+                        </span>
                       </td>
-                      <td>{entry.identifier}</td>
+                      <td className="vat__mono">{entry.date}</td>
+                      <td className="vat__mono">{entry.documentNumber}</td>
+                      <td>
+                        <span className="vat__ksef">
+                          <span className="vat__dot" aria-hidden="true" />
+                          {entry.ksefStatus}
+                        </span>
+                      </td>
+                      <td className="vat__mono">{entry.identifier}</td>
                       <td>
                         <button
                           type="button"
@@ -329,10 +414,34 @@ export function VatRegister({ entries }: VatRegisterProps) {
                       </td>
                     </tr>
                     {open ? (
-                      <tr className="vat__detail">
+                      <tr className={correction ? 'vat__detail is-correction' : 'vat__detail'}>
                         <td colSpan={6}>
-                          Stawka {entry.rate}. Netto {formatMoney(entry.net)}. VAT {formatMoney(entry.vat)}.
-                          Brutto {formatMoney(entry.gross)}.
+                          <p>
+                            Stawka {entry.rate}. Netto {formatMoney(entry.net)}. VAT {formatMoney(entry.vat)}.
+                            Brutto {formatMoney(entry.gross)}.
+                          </p>
+                          <div className="vat__ops" role="radiogroup" aria-label="Rodzaj operacji">
+                            {rowOperations.map((operation) => {
+                              const selected = entry.operation === operation
+                              return (
+                                <button
+                                  key={operation}
+                                  type="button"
+                                  role="radio"
+                                  className={selected ? 'vat__op-choice is-selected' : 'vat__op-choice'}
+                                  aria-checked={selected}
+                                  onClick={() =>
+                                    setOperations((current) => ({
+                                      ...current,
+                                      [entry.id]: operation,
+                                    }))
+                                  }
+                                >
+                                  {operation}
+                                </button>
+                              )
+                            })}
+                          </div>
                         </td>
                       </tr>
                     ) : null}

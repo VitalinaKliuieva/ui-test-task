@@ -20,6 +20,9 @@ export type IconName =
   | 'check'
   | 'filter'
   | 'series'
+  | 'lock'
+  | 'arrow'
+  | 'tag'
 
 type IconProps = {
   name: IconName
@@ -141,6 +144,24 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <path d="M8 7h11M8 12h11M8 17h11" />
       <path d="M4 7h.01M4 12h.01M4 17h.01" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="6" y="11" width="12" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  arrow: (
+    <>
+      <path d="M5 12h14" />
+      <path d="M13 6l6 6-6 6" />
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M4 12V5h7l9 9-7 7z" />
+      <path d="M8 8h.01" />
     </>
   ),
 }

@@ -3,11 +3,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 34px;
+  margin-bottom: var(--space-3);
 }
 
 .welcome__greeting {
-  font-size: clamp(32px, 4vw, 44px);
+  font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.045em;
   line-height: 1.05;
@@ -31,9 +31,9 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
   color: var(--ink);
 }
 
@@ -68,8 +68,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 6px 10px 6px 14px;
-  border-radius: 999px;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
   text-align: right;
 }
 
@@ -85,7 +86,7 @@
 
 .welcome__identity small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .welcome__avatar {
@@ -106,7 +107,7 @@
   width: min(340px, 78vw);
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius);
   background: var(--card);
   box-shadow: var(--shadow-pop);
 }
@@ -127,7 +128,7 @@
 
 .welcome__popover li {
   padding: 10px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   font-size: 14px;
 }
 

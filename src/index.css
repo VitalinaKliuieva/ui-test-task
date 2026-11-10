@@ -7,23 +7,34 @@
   --faint: #98a0b3;
   --line: #e6eaf2;
   --line-strong: #dbe1ec;
-  --accent: #14956f;
-  --accent-deep: #0d7a5b;
-  --accent-soft: #e7f6f0;
-  --accent-wash: #f3fbf7;
+  --accent: #0b6b5e;
+  --accent-deep: #0b6b5e;
+  --accent-soft: #e7f3f0;
+  --accent-wash: #f4f7f6;
+  --accent-fill: #0b6b5e;
+  --on-accent: #ffffff;
+  --amber: #e8a317;
+  --danger-ink: #9f1239;
   --banner: #fbf6ea;
-  --banner-line: #f0e4c4;
-  --banner-ink: #8a7040;
-  --warn: #b8860b;
-  --warn-line: #e6c56d;
-  --danger: #e11d48;
-  --well: #f4f8fb;
-  --shadow: 0 10px 30px rgba(28, 39, 68, 0.04);
-  --shadow-pop: 0 16px 40px rgba(28, 39, 68, 0.12);
-  --font: 'Manrope', 'Segoe UI', sans-serif;
-  --radius: 22px;
+  --banner-line: #e8a317;
+  --banner-ink: #6b4e12;
+  --warn: #6b4e12;
+  --warn-line: #e8a317;
+  --danger: #b42318;
+  --inactive: #667085;
+  --demo: #667085;
+  --well: #f7f8fa;
+  --shadow: none;
+  --shadow-pop: none;
+  --font: 'Inter', 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --radius: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
   font-family: var(--font);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.45;
   color: var(--ink);
   background: var(--canvas);
@@ -41,15 +52,21 @@
   --faint: #8b93a7;
   --line: #2c3346;
   --line-strong: #3a4258;
-  --accent: #3dbe90;
-  --accent-deep: #8ee0c0;
+  --accent: #8fd0c2;
+  --accent-deep: #d7f5ec;
   --accent-soft: #163528;
   --accent-wash: #14261e;
+  --accent-fill: #0b6b5e;
+  --on-accent: #ffffff;
+  --amber: #e8a317;
+  --danger-ink: #ffb4c4;
   --banner: #2a2618;
-  --banner-line: #4a4124;
-  --banner-ink: #e6d3a4;
-  --warn: #e6c56d;
-  --warn-line: #8a7030;
+  --banner-line: #e8a317;
+  --banner-ink: #f3ddb0;
+  --warn: #f3ddb0;
+  --warn-line: #e8a317;
+  --inactive: #b0b7c6;
+  --demo: #b0b7c6;
   --well: #151a27;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.4);
@@ -134,23 +151,20 @@ dd {
 
 .notice {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 14px 16px;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--banner-line);
-  border-radius: 14px;
+  border-radius: var(--radius);
   background: var(--banner);
   color: var(--banner-ink);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .notice .icon {
-  width: 22px;
-  height: 22px;
-  padding: 2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--banner-ink) 12%, transparent);
+  width: 16px;
+  height: 16px;
 }
 
 @media (prefers-reduced-motion: reduce) {

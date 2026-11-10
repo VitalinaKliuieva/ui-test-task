@@ -1,6 +1,6 @@
 .vat {
   min-width: 0;
-  padding: 26px 28px 18px;
+  padding: var(--space-4);
 }
 
 .vat__header {
@@ -17,8 +17,8 @@
 }
 
 .vat h2 {
-  margin: 2px 0 8px;
-  font-size: clamp(30px, 4vw, 38px);
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: 28px;
 }
 
 .vat__status {
@@ -33,23 +33,25 @@
 .vat__demo {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
+  min-height: 44px;
+  border-radius: var(--radius);
   font-weight: 700;
 }
 
 .vat__confirm {
-  padding: 6px 12px;
-  border: 1px solid var(--warn-line);
-  color: var(--warn);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--amber);
+  color: var(--ink);
   font-size: 13px;
 }
 
 .vat__demo {
-  padding: 5px 8px;
-  border: 1px solid var(--line-strong);
-  color: var(--ink);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  background: var(--well);
+  color: var(--demo);
+  font-size: 13px;
+  letter-spacing: 0.06em;
 }
 
 .vat__tabs {
@@ -62,19 +64,20 @@
 .vat__tab {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
+  min-height: 44px;
   margin-bottom: -1px;
-  padding: 12px 2px 14px;
+  padding: var(--space-2) var(--space-1);
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--muted);
+  color: var(--inactive);
   font-weight: 600;
 }
 
 .vat__tab.is-active {
   border-bottom-color: var(--accent);
-  color: var(--accent-deep);
+  color: var(--accent);
 }
 
 .vat .notice {
@@ -83,9 +86,21 @@
 
 .vat__search {
   display: flex;
-  gap: 10px;
+  gap: var(--space-2);
   align-items: center;
-  margin-top: 16px;
+  margin-top: var(--space-3);
+}
+
+.vat__tools {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.vat__tool-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--line);
 }
 
 .vat__search-field {
@@ -111,15 +126,27 @@
 }
 
 .vat__icon-button,
+.vat__clear,
+.vat__series-button {
+  min-height: 44px;
+}
+
+.vat__icon-button,
 .vat__clear {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--card);
-  color: var(--muted);
+  color: var(--ink);
+}
+
+.vat__clear:disabled {
+  color: var(--inactive);
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .vat__icon-button:hover,
@@ -132,24 +159,24 @@
 }
 
 .vat__filters {
-  margin-top: 14px;
-  padding: 16px;
-  border: 1px solid #e5eef5;
-  border-radius: 16px;
-  background: var(--well);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
 }
 
 .vat__filter-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  color: var(--muted);
+  gap: var(--space-2);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 600;
 }
@@ -175,10 +202,11 @@
 .vat__series-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--card);
   color: var(--ink);
   font-weight: 600;
@@ -192,31 +220,38 @@
 
 .vat__totals {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-  margin: 22px 0 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-2);
 }
 
 .vat__totals div {
-  padding-left: 14px;
-  border-left: 3px solid var(--accent);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
 }
 
 .vat__totals dt {
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .vat__totals dd {
-  margin-top: 4px;
-  font-size: 28px;
+  margin-top: var(--space-1);
+  font-size: 20px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.03em;
 }
 
+.vat__totals div:last-child {
+  border-color: var(--accent);
+}
+
 .vat__totals div:last-child dd {
-  font-size: 32px;
-  font-weight: 800;
+  color: var(--accent);
+  font-size: 24px;
 }
 
 .vat__rates-label {
@@ -252,8 +287,8 @@
 .vat__track {
   height: 8px;
   overflow: hidden;
-  border-radius: 999px;
-  background: #e6e9f0;
+  border-radius: var(--radius);
+  background: var(--well);
 }
 
 .vat__fill {
@@ -262,6 +297,10 @@
   width: var(--fill);
   border-radius: inherit;
   background: var(--accent);
+}
+
+.vat__fill.is-quiet {
+  background: var(--inactive);
 }
 
 .vat__rate-amount {
@@ -283,9 +322,13 @@
 }
 
 .vat__table th {
-  padding: 12px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-2);
   border-bottom: 1px solid var(--line);
-  color: var(--faint);
+  background: var(--card);
+  color: var(--muted);
   font-size: 13px;
   font-weight: 600;
   text-align: left;
@@ -294,7 +337,8 @@
 .vat__sort {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
+  min-height: 44px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -310,11 +354,70 @@
   opacity: 0.8;
 }
 
+.vat__table tbody tr:hover td {
+  background: var(--well);
+}
+
+.vat__table tr.is-correction td {
+  background: color-mix(in srgb, var(--amber) 16%, var(--card));
+}
+
+.vat__table tr.is-correction td:first-child {
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+
+.vat__table tr.is-correction:hover td {
+  background: color-mix(in srgb, var(--amber) 24%, var(--card));
+}
+
+.vat__op {
+  margin-inline-start: var(--space-2);
+  color: var(--inactive);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vat__op.is-correction {
+  color: var(--ink);
+}
+
+.vat__ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.vat__op-choice {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  font-weight: 600;
+}
+
+.vat__op-choice.is-selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.vat__table tr.is-correction .vat__op-choice.is-selected {
+  border-color: var(--amber);
+  color: var(--ink);
+}
+
 .vat__table td {
-  padding: 16px 10px;
+  padding: var(--space-2);
   border-bottom: 1px solid var(--line);
-  font-size: 14.5px;
+  font-size: 14px;
   vertical-align: middle;
+}
+
+.vat__mono {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .vat.is-compact .vat__table td {
@@ -323,23 +426,29 @@
 
 .vat__ksef {
   display: inline-flex;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--inactive);
   font-size: 13px;
+}
+
+.vat__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--inactive);
 }
 
 .vat__row-button {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   margin-left: auto;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
-  color: var(--faint);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--inactive);
 }
 
 .vat__row-button .icon {
@@ -380,16 +489,16 @@
 
 .vat__page-button,
 .vat__page-size {
-  height: 36px;
+  height: 44px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: var(--card);
 }
 
 .vat__page-button {
   display: grid;
   place-items: center;
-  width: 36px;
+  width: 44px;
   padding: 0;
 }
 
@@ -408,9 +517,10 @@
 
 .vat__page-label {
   min-width: 64px;
-  padding: 7px 12px;
+  min-height: 44px;
+  padding: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -444,17 +554,8 @@
     grid-template-columns: 1fr 1fr;
   }
 
-  .vat__search .vat__icon-button {
-    flex: 1;
-  }
-
-  .vat__search {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .vat__search-field {
-    grid-column: 1 / -1;
+  .vat__tools {
+    flex-wrap: wrap;
   }
 }
 

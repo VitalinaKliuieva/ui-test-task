@@ -1,4 +1,9 @@
-import type { RegisterState, SortKey, VatEntry, VatRate } from './types.ts'
+import type { RegisterKind, RegisterState, SortKey, VatEntry, VatRate } from './types.ts'
+
+export const REGISTER_OPERATIONS: Record<RegisterKind, readonly VatEntry['operation'][]> = {
+  sale: ['Faktura', 'Korekta'],
+  purchase: ['Zakup', 'Korekta'],
+}
 
 export const initialRegisterState: RegisterState = {
   tab: 'sale',
@@ -37,8 +42,14 @@ export function registerReducer(state: RegisterState, action: RegisterAction): R
   switch (action.type) {
     case 'search':
       return narrow(state, { search: action.value })
-    case 'tab':
-      return narrow(state, { tab: action.value })
+    case 'tab': {
+      const allowed = REGISTER_OPERATIONS[action.value]
+      const operation =
+        state.operation === 'all' || allowed.includes(state.operation as VatEntry['operation'])
+          ? state.operation
+          : 'all'
+      return narrow(state, { tab: action.value, operation })
+    }
     case 'year':
       return narrow(state, { year: action.value })
     case 'month':
@@ -108,6 +119,21 @@ export type RegisterSummary = {
   vat: number
   gross: number
   byRate: ReadonlyMap<VatRate, number>
+}
+
+export function countPeriod(
+  entries: readonly VatEntry[],
+  year: string,
+  month: string,
+): { salesCount: number; purchaseCount: number } {
+  let salesCount = 0
+  let purchaseCount = 0
+  for (const entry of entries) {
+    if (String(entry.year) !== year || String(entry.month) !== month) continue
+    if (entry.register === 'sale') salesCount += 1
+    else purchaseCount += 1
+  }
+  return { salesCount, purchaseCount }
 }
 
 export function summarize(entries: readonly VatEntry[]): RegisterSummary {
