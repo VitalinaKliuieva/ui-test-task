@@ -25,6 +25,9 @@ describe('VatRegister', () => {
     expect(screen.getByRole('cell', { name: 'KOR/3/10/2026/DEMO' })).toBeInTheDocument()
     expect(screen.queryByRole('cell', { name: 'Demo Alfa 11' })).not.toBeInTheDocument()
     expect(screen.getByText('1–10 z 14 zapisów')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Liczba zapisów na stronie' })).toHaveTextContent(
+      '10 na stronie',
+    )
   })
 
   it('pages, searches, filters to an empty month, and opens a row', async () => {
@@ -36,7 +39,7 @@ describe('VatRegister', () => {
     expect(screen.queryByRole('cell', { name: 'Demo Alfa 01' })).not.toBeInTheDocument()
     expect(screen.getByText('11–14 z 14 zapisów')).toBeInTheDocument()
 
-    expect(screen.getByRole('button', { name: 'Wyczyść filtry' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Wyczyść filtry' })).not.toBeInTheDocument()
     await user.type(screen.getByRole('searchbox', { name: 'Szukaj' }), 'Alfa 03')
     expect(screen.getByRole('button', { name: 'Wyczyść filtry' })).toBeEnabled()
     expect(screen.getByRole('cell', { name: 'KOR/3/10/2026/DEMO' })).toBeInTheDocument()
@@ -45,12 +48,17 @@ describe('VatRegister', () => {
     await user.click(screen.getByRole('button', { name: 'Szczegóły Demo Alfa 03' }))
     expect(screen.getByText(/Stawka 23%/)).toBeInTheDocument()
 
+    await user.click(screen.getByRole('button', { name: 'Więcej' }))
     await user.click(screen.getByRole('button', { name: 'Odśwież podgląd' }))
     expect(screen.getByRole('cell', { name: 'Demo Alfa 01' })).toBeInTheDocument()
 
+    await user.click(screen.getByRole('button', { name: 'Filtry' }))
     await user.selectOptions(screen.getByLabelText('Miesiąc'), '1')
+    await user.click(screen.getByRole('button', { name: 'Zastosuj' }))
     expect(screen.getByText('Brak zapisów dla wybranego okresu.')).toBeInTheDocument()
-    expect(screen.getByText('0 z 0 zapisów')).toBeInTheDocument()
+    expect(screen.queryByText('1–10 z 14 zapisów')).not.toBeInTheDocument()
+    const totals = document.querySelector('.vat__totals')?.textContent?.replace(/\s/g, ' ')
+    expect(totals).toContain(formatMoney(0))
 
     await user.click(screen.getByRole('button', { name: 'Wyczyść filtry' }))
     expect(screen.getByRole('cell', { name: 'Demo Alfa 01' })).toBeInTheDocument()
@@ -65,7 +73,6 @@ describe('VatRegister', () => {
 
     await user.click(screen.getByRole('button', { name: 'Szczegóły Demo Alfa 01' }))
     expect(screen.queryByRole('radio', { name: 'Zakup' })).not.toBeInTheDocument()
-    expect(within(screen.getByRole('combobox', { name: /Rodzaj operacji/ })).queryByRole('option', { name: 'Zakup' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('radio', { name: 'Korekta' }))
 
     expect(invoice).toHaveClass('is-correction')
@@ -74,6 +81,20 @@ describe('VatRegister', () => {
     await user.click(screen.getByRole('radio', { name: 'Faktura' }))
     expect(invoice).not.toHaveClass('is-correction')
     expect(screen.getByRole('cell', { name: 'FV/1/10/2026/DEMO' })).toBeInTheDocument()
+  })
+
+  it('keeps a correction on its own row and limits sales operations', async () => {
+    const user = userEvent.setup()
+    renderRegister()
+
+    const correction = screen.getByRole('cell', { name: 'Demo Alfa 03' }).closest('tr')
+    expect(correction).toHaveClass('is-correction')
+
+    await user.click(screen.getByRole('button', { name: 'Filtry' }))
+    const operation = screen.getByRole('combobox', { name: /Rodzaj operacji/ })
+    expect(within(operation).queryByRole('option', { name: 'Zakup' })).not.toBeInTheDocument()
+    expect(within(operation).getByRole('option', { name: 'Faktura' })).toBeInTheDocument()
+    expect(within(operation).getByRole('option', { name: 'Korekta' })).toBeInTheDocument()
   })
 
   it('switches to the purchase register', async () => {
@@ -86,8 +107,42 @@ describe('VatRegister', () => {
     await user.click(within(table).getByRole('button', { name: 'Szczegóły Demo Beta 01' }))
     expect(screen.getByRole('radio', { name: 'Zakup' })).toBeChecked()
     expect(screen.queryByRole('radio', { name: 'Faktura' })).not.toBeInTheDocument()
-    expect(within(screen.getByRole('combobox', { name: /Rodzaj operacji/ })).getByRole('option', { name: 'Zakup' })).toBeInTheDocument()
     expect(screen.queryByRole('cell', { name: 'Demo Alfa 01' })).not.toBeInTheDocument()
     expect(screen.getByText(formatMoney(1920))).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Filtry' }))
+    const operation = screen.getByRole('combobox', { name: /Rodzaj operacji/ })
+    expect(within(operation).getByRole('option', { name: 'Zakup' })).toBeInTheDocument()
+    expect(within(operation).queryByRole('option', { name: 'Faktura' })).not.toBeInTheDocument()
+  })
+
+  it('shows the empty and error demo states', async () => {
+    const user = userEvent.setup()
+    renderRegister()
+
+    await user.click(screen.getByRole('button', { name: 'brak' }))
+    expect(screen.getByText('Brak zapisów dla wybranego okresu.')).toBeInTheDocument()
+    expect(screen.queryByText('1–10 z 14 zapisów')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'błąd' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Nie udało się wczytać zapisów.')
+    expect(screen.getByRole('searchbox', { name: 'Szukaj' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Spróbuj ponownie' }))
+    expect(screen.getByRole('cell', { name: 'Demo Alfa 01' })).toBeInTheDocument()
+  })
+
+  it('hides a column from the menu and changes the page size', async () => {
+    const user = userEvent.setup()
+    renderRegister()
+
+    await user.click(screen.getByRole('button', { name: 'Więcej' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Identyfikator' }))
+    await user.click(screen.getByRole('button', { name: 'Więcej' }))
+    expect(screen.queryByRole('columnheader', { name: 'Identyfikator' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Liczba zapisów na stronie' }))
+    await user.click(screen.getByRole('option', { name: '25 na stronie' }))
+    expect(screen.getByRole('cell', { name: 'Demo Alfa 14' })).toBeInTheDocument()
+    expect(screen.getByText('1–14 z 14 zapisów')).toBeInTheDocument()
   })
 })

@@ -1,15 +1,15 @@
-import { Fragment, useReducer, useState } from 'react'
-import type { CSSProperties } from 'react'
-import { MONTHS, PAGE_SIZES, YEARS, formatMoney } from '../ledger/format.ts'
+import { useEffect, useReducer, useRef, useState } from 'react'
+import { Icon } from './Icon.tsx'
+import { ledgerEntries } from '../ledger/entries.ts'
+import { formatMoney, MONTHS, PAGE_SIZES, YEARS } from '../ledger/format.ts'
 import {
-  REGISTER_OPERATIONS,
   initialRegisterState,
+  REGISTER_OPERATIONS,
   registerReducer,
   summarize,
   visibleEntries,
 } from '../ledger/register.ts'
 import type { RegisterKind, SortKey, VatEntry, VatRate } from '../ledger/types.ts'
-import { Icon } from './Icon.tsx'
 import './VatRegister.css'
 
 const COLUMNS: readonly { key: SortKey; label: string }[] = [
@@ -20,17 +20,7 @@ const COLUMNS: readonly { key: SortKey; label: string }[] = [
   { key: 'identifier', label: 'Identyfikator' },
 ]
 
-const JPK_CODES = [
-  { value: 'all', label: 'Wszystkie' },
-  { value: 'K_19', label: 'K_19' },
-  { value: 'K_10', label: 'K_10' },
-] as const
-
 const RATES: readonly VatRate[] = ['23%', 'np']
-
-function operationsFor(register: RegisterKind): readonly VatEntry['operation'][] {
-  return REGISTER_OPERATIONS[register]
-}
 
 const DOCUMENT_PREFIX: Record<VatEntry['operation'], string> = {
   Korekta: 'KOR',
@@ -39,7 +29,9 @@ const DOCUMENT_PREFIX: Record<VatEntry['operation'], string> = {
 }
 
 function withOperation(entry: VatEntry, operation: VatEntry['operation']): VatEntry {
-  if (operation === entry.operation || !operationsFor(entry.register).includes(operation)) return entry
+  if (operation === entry.operation || !REGISTER_OPERATIONS[entry.register].includes(operation)) {
+    return entry
+  }
   return {
     ...entry,
     operation,
@@ -47,11 +39,36 @@ function withOperation(entry: VatEntry, operation: VatEntry['operation']): VatEn
   }
 }
 
-type VatRegisterProps = {
-  entries: readonly VatEntry[]
-  year?: string
-  month?: string
-  onPeriodChange?: (period: { year: string; month: string }) => void
+const TAB_LABEL: Record<RegisterKind, string> = {
+  sale: 'Rejestr VAT sprzedaży',
+  purchase: 'Rejestr VAT zakupów',
+}
+
+type ViewState = 'data' | 'empty' | 'error'
+type ChipId = 'search' | 'year' | 'month' | 'operation' | 'jpkCode'
+
+type Draft = {
+  year: string
+  month: string
+  operation: string
+  jpkCode: string
+}
+
+const instant = import.meta.env.MODE === 'test'
+
+function useMaxWidth(query: string): boolean {
+  const [matches, setMatches] = useState(false)
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia(query)
+    const apply = () => setMatches(media.matches)
+    apply()
+    media.addEventListener('change', apply)
+    return () => media.removeEventListener('change', apply)
+  }, [query])
+
+  return matches
 }
 
 function entriesToCsv(entries: readonly VatEntry[]): string {
@@ -81,6 +98,7 @@ function entriesToCsv(entries: readonly VatEntry[]): string {
 }
 
 function downloadCsv(entries: readonly VatEntry[]) {
+  if (typeof URL.createObjectURL !== 'function') return
   const blob = new Blob([entriesToCsv(entries)], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -90,411 +108,790 @@ function downloadCsv(entries: readonly VatEntry[]) {
   URL.revokeObjectURL(url)
 }
 
-export function VatRegister({ entries, year: yearProp, month: monthProp, onPeriodChange }: VatRegisterProps) {
+function columnLabel(key: SortKey): string {
+  return COLUMNS.find((column) => column.key === key)?.label ?? key
+}
+
+export function VatRegister({ entries = ledgerEntries }: { entries?: readonly VatEntry[] }) {
   const [state, dispatch] = useReducer(registerReducer, initialRegisterState)
-  const [operations, setOperations] = useState<Record<string, VatEntry['operation']>>({})
-  const year = yearProp ?? state.year
-  const month = monthProp ?? state.month
-  const resolved = entries.map((entry) => withOperation(entry, operations[entry.id] ?? entry.operation))
-  const ordered = visibleEntries(resolved, { ...state, year, month })
-  const summary = summarize(ordered)
+  const [view, setView] = useState<ViewState>('data')
+  const [bannerOn, setBannerOn] = useState(true)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [pageSizeOpen, setPageSizeOpen] = useState(false)
+  const [operationOverrides, setOperationOverrides] = useState<
+    Record<string, VatEntry['operation']>
+  >({})
+  const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState('')
+  const [order, setOrder] = useState<SortKey[]>(COLUMNS.map((column) => column.key))
+  const [hidden, setHidden] = useState<SortKey[]>([])
+  const [columnsTouched, setColumnsTouched] = useState(false)
+  const [draft, setDraft] = useState<Draft>({
+    year: initialRegisterState.year,
+    month: initialRegisterState.month,
+    operation: initialRegisterState.operation,
+    jpkCode: initialRegisterState.jpkCode,
+  })
+  const rootRef = useRef<HTMLElement>(null)
+  const timer = useRef<number | null>(null)
+  const phone = useMaxWidth('(max-width: 767px)')
+  const tablet = useMaxWidth('(max-width: 1100px)')
+
+  useEffect(() => {
+    if (columnsTouched) return
+    setHidden(tablet && !phone ? ['identifier'] : [])
+  }, [columnsTouched, phone, tablet])
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current)
+    },
+    [],
+  )
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setFiltersOpen(false)
+      setMenuOpen(false)
+      setPageSizeOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  function settle(apply: () => void) {
+    if (instant) {
+      apply()
+      return
+    }
+    if (timer.current !== null) window.clearTimeout(timer.current)
+    setLoading(true)
+    timer.current = window.setTimeout(() => {
+      apply()
+      setLoading(false)
+      timer.current = null
+    }, 420)
+  }
+
+  const resolved = entries.map((entry) =>
+    withOperation(entry, operationOverrides[entry.id] ?? entry.operation),
+  )
+  const ordered = visibleEntries(resolved, state)
   const pageCount = Math.max(1, Math.ceil(ordered.length / state.pageSize))
   const page = Math.min(state.page, pageCount)
   const start = (page - 1) * state.pageSize
   const pageRows = ordered.slice(start, start + state.pageSize)
-  const from = ordered.length === 0 ? 0 : start + 1
-  const to = Math.min(start + state.pageSize, ordered.length)
-  const rangeLabel =
-    ordered.length === 0 ? '0 z 0 zapisów' : `${from}–${to} z ${ordered.length} zapisów`
-  const tabLabel = state.tab === 'sale' ? 'Rejestr VAT sprzedaży' : 'Rejestr VAT zakupów'
-  const rowOperations = operationsFor(state.tab)
-  const operationFilters = ['all' as const, ...rowOperations]
-  const filtersActive =
-    state.search.length > 0 ||
-    year !== initialRegisterState.year ||
-    month !== initialRegisterState.month ||
-    state.operation !== initialRegisterState.operation ||
-    state.jpkCode !== initialRegisterState.jpkCode
+  const visibleKeys = order.filter((key) => !hidden.includes(key))
+  const summarySource = view === 'empty' || ordered.length === 0 ? [] : ordered
+  const summary = summarize(summarySource)
+  const operations = REGISTER_OPERATIONS[state.tab]
+  const listReplaced = view !== 'data' || ordered.length === 0
+  const showPager = view === 'data' && ordered.length > 0
+
+  const chips: { id: ChipId; label: string }[] = []
+  if (state.year !== initialRegisterState.year) chips.push({ id: 'year', label: state.year })
+  if (state.month !== initialRegisterState.month) {
+    const month = MONTHS.find((item) => item.value === state.month)
+    chips.push({ id: 'month', label: month?.label ?? state.month })
+  }
+  if (state.operation !== 'all') chips.push({ id: 'operation', label: state.operation })
+  if (state.jpkCode !== 'all') chips.push({ id: 'jpkCode', label: state.jpkCode })
+  if (state.search.trim().length > 0) chips.push({ id: 'search', label: state.search.trim() })
+
+  const filterCount = chips.filter((chip) => chip.id !== 'search').length
+  const showChipClear = chips.length > 0 && !listReplaced
+  const showEmptyClear = listReplaced && view !== 'error'
+  const fillApply = view !== 'error'
+
+  function openFilters() {
+    setDraft({
+      year: state.year,
+      month: state.month,
+      operation: operations.includes(state.operation as VatEntry['operation'])
+        ? state.operation
+        : 'all',
+      jpkCode: state.jpkCode,
+    })
+    setFiltersOpen(true)
+    setMenuOpen(false)
+  }
+
+  function applyFilters() {
+    const next = draft
+    setFiltersOpen(false)
+    settle(() => {
+      dispatch({ type: 'year', value: next.year })
+      dispatch({ type: 'month', value: next.month })
+      dispatch({ type: 'operation', value: next.operation })
+      dispatch({ type: 'jpkCode', value: next.jpkCode })
+    })
+  }
+
+  function clearFilters() {
+    setFiltersOpen(false)
+    setDraft({
+      year: initialRegisterState.year,
+      month: initialRegisterState.month,
+      operation: 'all',
+      jpkCode: 'all',
+    })
+    settle(() => {
+      dispatch({ type: 'resetFilters' })
+      setView('data')
+    })
+  }
+
+  function removeChip(id: ChipId) {
+    const value =
+      id === 'year'
+        ? initialRegisterState.year
+        : id === 'month'
+          ? initialRegisterState.month
+          : id === 'search'
+            ? ''
+            : 'all'
+    settle(() => dispatch({ type: id, value }))
+  }
+
+  function moveColumn(key: SortKey, direction: -1 | 1) {
+    setColumnsTouched(true)
+    setOrder((current) => {
+      const index = current.indexOf(key)
+      const next = index + direction
+      if (index < 0 || next < 0 || next >= current.length) return current
+      const copy = current.slice()
+      const [item] = copy.splice(index, 1)
+      copy.splice(next, 0, item)
+      return copy
+    })
+  }
+
+  function toggleColumn(key: SortKey) {
+    setColumnsTouched(true)
+    setHidden((current) => {
+      if (current.includes(key)) return current.filter((item) => item !== key)
+      const shown = order.filter((item) => !current.includes(item))
+      if (shown.length <= 1) return current
+      return [...current, key]
+    })
+  }
+
+  function printRegister() {
+    setMenuOpen(false)
+    setStatus('Drukuj rejestr')
+    if (typeof window.print === 'function') window.print()
+  }
+
+  function exportCsv() {
+    setMenuOpen(false)
+    downloadCsv(ordered)
+    setStatus('Pobierz CSV')
+  }
+
+  const range =
+    ordered.length === 0
+      ? '0 z 0 zapisów'
+      : `${start + 1}–${Math.min(start + state.pageSize, ordered.length)} z ${ordered.length} zapisów`
 
   return (
-    <section className={state.compact ? 'card vat is-compact' : 'card vat'} aria-labelledby="vat-title">
-      <header className="vat__header">
-        <div>
+    <section className="card vat" aria-labelledby="vat-title" ref={rootRef}>
+      <div className="vat__head">
+        <div className="vat__intro">
           <p className="vat__company">Onsaldo Preview Sp. z o.o.</p>
           <h2 id="vat-title">Rejestry i VAT</h2>
-          <p className="lede">
+          <p className="vat__lede">
             Sprzedaż i zakupy w wybranym okresie — podgląd danych demonstracyjnych.
           </p>
+          <div className="vat__badges">
+            <span className="badge badge-warn">Wymaga potwierdzenia</span>
+            <span className="badge badge-demo">DEMO</span>
+          </div>
         </div>
-        <div className="vat__status">
-          <p className="vat__confirm">Wymaga potwierdzenia</p>
-          <p className="vat__demo">DEMO</p>
+        <div className="vat__state" role="group" aria-label="Stan">
+          <span>Stan</span>
+          {(
+            [
+              ['data', 'dane'],
+              ['empty', 'brak'],
+              ['error', 'błąd'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className="btn-ghost"
+              aria-pressed={view === value}
+              onClick={() => {
+                setView(value)
+                setLoading(false)
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      </header>
+      </div>
 
       <div className="vat__tabs" role="tablist" aria-label="Rodzaj rejestru VAT">
-        <button
-          type="button"
-          role="tab"
-          className={state.tab === 'sale' ? 'vat__tab is-active' : 'vat__tab'}
-          aria-selected={state.tab === 'sale'}
-          onClick={() => dispatch({ type: 'tab', value: 'sale' })}
-        >
-          <Icon name="document" />
-          Rejestr VAT sprzedaży
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={state.tab === 'purchase' ? 'vat__tab is-active' : 'vat__tab'}
-          aria-selected={state.tab === 'purchase'}
-          onClick={() => dispatch({ type: 'tab', value: 'purchase' })}
-        >
-          <Icon name="document" />
-          Rejestr VAT zakupów
-        </button>
+        {(Object.keys(TAB_LABEL) as RegisterKind[]).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={state.tab === tab}
+            onClick={() => {
+              setMenuOpen(false)
+              settle(() => dispatch({ type: 'tab', value: tab }))
+            }}
+          >
+            {TAB_LABEL[tab]}
+          </button>
+        ))}
       </div>
 
-      <div className="notice">
-        <Icon name="info" />
-        <p>
-          Kontekst VAT wymaga potwierdzenia. Poniżej wyłącznie dane demonstracyjne, nie ewidencja
-          organizacji.
+      {bannerOn ? (
+        <p className="notice vat__banner">
+          <Icon name="info" />
+          <span>
+            Kontekst VAT wymaga potwierdzenia. Poniżej wyłącznie dane demonstracyjne, nie
+            ewidencja organizacji.
+          </span>
+          <button type="button" className="btn-ghost" aria-label="Zamknij" onClick={() => setBannerOn(false)}>
+            ×
+          </button>
         </p>
-      </div>
+      ) : null}
 
-      <form className="vat__search" role="search" onSubmit={(event) => event.preventDefault()}>
-        <label className="vat__search-field">
+      <div className="vat__toolbar">
+        <label className="vat__search">
           <span className="sr-only">Szukaj</span>
           <Icon name="search" />
           <input
             type="search"
+            aria-label="Szukaj"
             placeholder="Szukaj"
             value={state.search}
             onChange={(event) => dispatch({ type: 'search', value: event.target.value })}
           />
         </label>
-        <div className="vat__tools">
-          <button type="button" className="vat__icon-button" aria-label="Drukuj rejestr" onClick={() => window.print()}>
-            <Icon name="print" />
-          </button>
-          <button type="button" className="vat__icon-button" aria-label="Pobierz CSV" onClick={() => downloadCsv(ordered)}>
-            <Icon name="download" />
-          </button>
-          <button
-            type="button"
-            className="vat__icon-button"
-            aria-label="Odśwież podgląd"
-            onClick={() => {
-              dispatch({ type: 'reset' })
-              setOperations({})
-              onPeriodChange?.({
-                year: initialRegisterState.year,
-                month: initialRegisterState.month,
-              })
-            }}
-          >
-            <Icon name="refresh" />
-          </button>
-          <span className="vat__tool-divider" aria-hidden="true" />
-          <button
-            type="button"
-            className="vat__icon-button"
-            aria-expanded={state.seriesOpen}
-            aria-label="Serie dokumentów"
-            onClick={() => dispatch({ type: 'toggleSeries' })}
-          >
-            <Icon name="tag" />
-          </button>
-          <button
-            type="button"
-            className="vat__icon-button"
-            aria-pressed={state.compact}
-            aria-label={state.compact ? 'Pokaż wygodny widok' : 'Pokaż zwarty widok'}
-            onClick={() => dispatch({ type: 'toggleCompact' })}
-          >
-            <Icon name="expand" />
-          </button>
-        </div>
-      </form>
+        <button
+          type="button"
+          className="btn-line"
+          aria-label="Filtry"
+          aria-expanded={filtersOpen}
+          onClick={() => (filtersOpen ? setFiltersOpen(false) : openFilters())}
+        >
+          <Icon name="filter" />
+          Filtry
+          {filterCount > 0 ? <span className="vat__count">{filterCount}</span> : null}
+        </button>
+        <button
+          type="button"
+          className="btn-line vat__desktop-only"
+          aria-label="Drukuj rejestr"
+          onClick={printRegister}
+        >
+          <Icon name="print" />
+        </button>
+        <button
+          type="button"
+          className="btn-line vat__desktop-only"
+          aria-label="Pobierz CSV"
+          onClick={exportCsv}
+        >
+          <Icon name="download" />
+        </button>
+        <button
+          type="button"
+          className="btn-line"
+          aria-label="Więcej"
+          aria-expanded={menuOpen}
+          onClick={() => {
+            setMenuOpen((open) => !open)
+            setFiltersOpen(false)
+          }}
+        >
+          ⋯
+        </button>
 
-      <div className="vat__filters">
-        <div className="vat__filter-grid">
-          <label className="field">
-            Rok
-            <select
-              value={year}
-              onChange={(event) => {
-                const value = event.target.value
-                dispatch({ type: 'year', value })
-                onPeriodChange?.({ year: value, month })
+        {menuOpen ? (
+          <div className="vat__menu" role="group" aria-label="Więcej">
+            <button
+              type="button"
+              className="btn-ghost"
+              aria-pressed={state.seriesOpen}
+              onClick={() => {
+                dispatch({ type: 'toggleSeries' })
+                setStatus('Serie dokumentów')
               }}
             >
-              {YEARS.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Miesiąc
-            <select
-              value={month}
-              onChange={(event) => {
-                const value = event.target.value
-                dispatch({ type: 'month', value })
-                onPeriodChange?.({ year, month: value })
+              <Icon name="series" />
+              Serie dokumentów
+            </button>
+            {phone ? (
+              <>
+                <button type="button" className="btn-ghost" onClick={printRegister}>
+                  <Icon name="print" />
+                  Drukuj rejestr
+                </button>
+                <button type="button" className="btn-ghost" onClick={exportCsv}>
+                  <Icon name="download" />
+                  Pobierz CSV
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                setMenuOpen(false)
+                setStatus('Odśwież podgląd')
+                settle(() => {
+                  dispatch({ type: 'reset' })
+                  setOperationOverrides({})
+                  setView('data')
+                  setHidden([])
+                  setOrder(COLUMNS.map((column) => column.key))
+                  setColumnsTouched(false)
+                })
               }}
             >
-              {MONTHS.map((month) => (
-                <option key={month.value} value={month.value}>
-                  {month.label}
-                </option>
+              <Icon name="refresh" />
+              Odśwież podgląd
+            </button>
+            <div className="vat__columns" aria-label="Kolumny">
+              {order.map((key, index) => (
+                <div key={key} className="vat__column">
+                  <button type="button" className="btn-ghost" onClick={() => settle(() => dispatch({ type: 'sort', key }))}>
+                    {columnLabel(key)}
+                  </button>
+                  <input
+                    type="checkbox"
+                    aria-label={columnLabel(key)}
+                    checked={!hidden.includes(key)}
+                    onChange={() => toggleColumn(key)}
+                  />
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    aria-label={`Wyżej ${columnLabel(key)}`}
+                    disabled={index === 0}
+                    onClick={() => moveColumn(key, -1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    aria-label={`Niżej ${columnLabel(key)}`}
+                    disabled={index === order.length - 1}
+                    onClick={() => moveColumn(key, 1)}
+                  >
+                    ↓
+                  </button>
+                </div>
               ))}
-            </select>
-          </label>
-          <label className="field">
-            Rodzaj operacji
-            <select
-              value={state.operation}
-              onChange={(event) => dispatch({ type: 'operation', value: event.target.value })}
+            </div>
+          </div>
+        ) : null}
+
+        {filtersOpen ? (
+          <div className="vat__panel" role="dialog" aria-label="Filtry">
+            <div className="vat__fields">
+              <label>
+                Rok
+                <select
+                  value={draft.year}
+                  onChange={(event) => setDraft((current) => ({ ...current, year: event.target.value }))}
+                >
+                  {YEARS.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Miesiąc
+                <select
+                  value={draft.month}
+                  onChange={(event) => setDraft((current) => ({ ...current, month: event.target.value }))}
+                >
+                  {MONTHS.map((month) => (
+                    <option key={month.value} value={month.value}>
+                      {month.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Rodzaj operacji
+                <select
+                  value={draft.operation}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, operation: event.target.value }))
+                  }
+                >
+                  <option value="all">Wszystkie</option>
+                  {operations.map((operation) => (
+                    <option key={operation} value={operation}>
+                      {operation}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Kod JPK V7
+                <select
+                  value={draft.jpkCode}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, jpkCode: event.target.value }))
+                  }
+                >
+                  <option value="all">Wszystkie</option>
+                  <option value="K_19">K_19</option>
+                  <option value="K_10">K_10</option>
+                </select>
+              </label>
+            </div>
+            <button
+              type="button"
+              className="btn-line vat__series"
+              aria-pressed={state.seriesOpen}
+              onClick={() => dispatch({ type: 'toggleSeries' })}
             >
-              {operationFilters.map((operation) => (
-                <option key={operation} value={operation}>
-                  {operation === 'all' ? 'Wszystkie' : operation}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Kod JPK V7
-            <select
-              value={state.jpkCode}
-              onChange={(event) => dispatch({ type: 'jpkCode', value: event.target.value })}
-            >
-              {JPK_CODES.map((code) => (
-                <option key={code.value} value={code.value}>
-                  {code.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="vat__filter-foot">
-          <button
-            type="button"
-            className="vat__series-button"
-            aria-expanded={state.seriesOpen}
-            onClick={() => dispatch({ type: 'toggleSeries' })}
-          >
-            <Icon name="series" />
-            Serie dokumentów
-          </button>
-          <button
-            type="button"
-            className="vat__clear"
-            aria-label="Wyczyść filtry"
-            disabled={!filtersActive}
-            onClick={() => {
-              dispatch({ type: 'resetFilters' })
-              onPeriodChange?.({
-                year: initialRegisterState.year,
-                month: initialRegisterState.month,
-              })
-            }}
-          >
-            <Icon name="filter" />
-          </button>
-        </div>
-        {state.seriesOpen ? (
-          <p className="vat__series">
-            Aktywna seria demonstracyjna: DEMO. Serie nie tworzą zapisów w ewidencji organizacji.
-          </p>
+              <Icon name="tag" />
+              Serie dokumentów
+            </button>
+            <div className="vat__panel-actions">
+              <button type="button" className="btn-line" onClick={clearFilters}>
+                Wyczyść filtry
+              </button>
+              <button
+                type="button"
+                className={fillApply ? 'btn-fill' : 'btn-line'}
+                onClick={applyFilters}
+              >
+                Zastosuj
+              </button>
+            </div>
+          </div>
         ) : null}
       </div>
 
-      <dl className="vat__totals">
-        <div>
-          <dt>Netto</dt>
-          <dd>{formatMoney(summary.net)}</dd>
-        </div>
-        <div>
-          <dt>VAT</dt>
-          <dd>{formatMoney(summary.vat)}</dd>
-        </div>
-        <div>
-          <dt>Brutto</dt>
-          <dd>{formatMoney(summary.gross)}</dd>
-        </div>
-      </dl>
+      {filtersOpen ? (
+        <div className="vat__backdrop" onClick={() => setFiltersOpen(false)} />
+      ) : null}
 
-      <p className="vat__rates-label">
-        Kwoty według stawek VAT
-        <span>VAT · DEMO</span>
-      </p>
-      {RATES.map((rate) => {
-        const amount = summary.byRate.get(rate) ?? 0
-        const width = summary.vat === 0 ? 0 : Math.round((amount / summary.vat) * 100)
-        return (
-          <div className="vat__rate" key={rate}>
-            <span className={rate === 'np' ? 'vat__rate-label is-quiet' : 'vat__rate-label'}>{rate}</span>
-            <span className="vat__track" aria-hidden="true">
-              <span
-                className={rate === 'np' ? 'vat__fill is-quiet' : 'vat__fill'}
-                style={{ '--fill': `${width}%` } as CSSProperties}
-              />
-            </span>
-            <span className="vat__rate-amount">{formatMoney(amount)}</span>
+      {chips.length > 0 ? (
+        <div className="vat__chips">
+          {chips.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              className="vat__chip"
+              aria-label={`Usuń ${chip.label}`}
+              onClick={() => removeChip(chip.id)}
+            >
+              {chip.label}
+              <span aria-hidden="true">×</span>
+            </button>
+          ))}
+          {showChipClear ? (
+            <button type="button" className="btn-ghost" onClick={clearFilters}>
+              Wyczyść filtry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {state.seriesOpen ? (
+        <p className="vat__series-note">
+          Aktywna seria demonstracyjna: DEMO. Serie nie tworzą zapisów w ewidencji organizacji.
+        </p>
+      ) : null}
+
+      <div className="vat__summary">
+        <div className="vat__totals">
+          <div>
+            <span>Netto</span>
+            <strong>{formatMoney(summary.net)}</strong>
           </div>
-        )
-      })}
+          <div>
+            <span>VAT</span>
+            <strong>{formatMoney(summary.vat)}</strong>
+          </div>
+          <div className="is-gross">
+            <span>Brutto</span>
+            <strong>{formatMoney(summary.gross)}</strong>
+          </div>
+        </div>
+        <h3 className="vat__rates-title">Kwoty według stawek VAT</h3>
+        <div className="vat__rates">
+          <span className="badge badge-demo">VAT · DEMO</span>
+          {RATES.map((rate) => {
+            const amount = summary.byRate.get(rate) ?? 0
+            const max = Math.max(
+              ...RATES.map((item) => summary.byRate.get(item) ?? 0),
+              1,
+            )
+            return (
+              <div key={rate} className="vat__rate">
+                <span>{rate}</span>
+                <span className="vat__bar" aria-hidden="true">
+                  <span style={{ width: `${(amount / max) * 100}%` }} />
+                </span>
+                <span>{formatMoney(amount)}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
 
-      <div className="vat__table-wrap">
+      <div className={phone ? 'vat__list is-cards' : 'vat__list'} aria-busy={loading}>
         <table className="vat__table">
-          <caption className="sr-only">{tabLabel}</caption>
-          <thead>
-            <tr>
-              {COLUMNS.map((column) => {
-                const active = state.sortKey === column.key
-                const direction = active && state.sortDirection === 'desc' ? 'descending' : 'ascending'
-                return (
-                  <th key={column.key} scope="col" aria-sort={active ? direction : 'none'}>
-                    <button type="button" className="vat__sort" onClick={() => dispatch({ type: 'sort', key: column.key })}>
-                      <span className="vat__grip" aria-hidden="true" />
-                      {column.label}
+          <caption className="sr-only">{TAB_LABEL[state.tab]}</caption>
+          {listReplaced || loading ? null : (
+            <thead>
+              <tr>
+                {visibleKeys.map((key) => (
+                  <th key={key} aria-sort={state.sortKey === key ? state.sortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}>
+                    <button type="button" onClick={() => settle(() => dispatch({ type: 'sort', key }))}>
+                      {columnLabel(key)}
                     </button>
                   </th>
-                )
-              })}
-              <th scope="col">
-                <span className="sr-only">Szczegóły</span>
-              </th>
-            </tr>
-          </thead>
+                ))}
+                <th>
+                  <span className="sr-only">Szczegóły</span>
+                </th>
+              </tr>
+            </thead>
+          )}
           <tbody>
-            {pageRows.length === 0 ? (
+            {loading ? (
+              [0, 1, 2, 3].map((row) => (
+                <tr key={row} className="vat__skeleton-row">
+                  <td colSpan={visibleKeys.length + 1}>
+                    <span className="vat__skeleton" />
+                  </td>
+                </tr>
+              ))
+            ) : view === 'error' ? (
               <tr>
-                <td className="vat__empty" colSpan={6}>
-                  Brak zapisów dla wybranego okresu.
+                <td colSpan={visibleKeys.length + 1}>
+                  <div className="vat__message" role="alert">
+                    <Icon name="info" />
+                    <p>Nie udało się wczytać zapisów.</p>
+                    <button
+                      type="button"
+                      className={filtersOpen ? 'btn-line' : 'btn-fill'}
+                      onClick={() => settle(() => setView('data'))}
+                    >
+                      Spróbuj ponownie
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ) : pageRows.length === 0 || view === 'empty' ? (
+              <tr>
+                <td colSpan={visibleKeys.length + 1}>
+                  <div className="vat__message">
+                    <Icon name="document" />
+                    <p>Brak zapisów dla wybranego okresu.</p>
+                    {showEmptyClear ? (
+                      <button type="button" className="btn-line" onClick={clearFilters}>
+                        Wyczyść filtry
+                      </button>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ) : (
-              pageRows.map((entry) => {
-                const open = state.expandedId === entry.id
-                const correction = entry.operation === 'Korekta'
-                return (
-                  <Fragment key={entry.id}>
-                    <tr className={correction ? 'is-correction' : undefined}>
-                      <td>
-                        {entry.contractor}
-                        <span className={correction ? 'vat__op is-correction' : 'vat__op'} aria-hidden="true">
-                          {entry.operation}
-                        </span>
-                      </td>
-                      <td className="vat__mono">{entry.date}</td>
-                      <td className="vat__mono">{entry.documentNumber}</td>
-                      <td>
-                        <span className="vat__ksef">
-                          <span className="vat__dot" aria-hidden="true" />
-                          {entry.ksefStatus}
-                        </span>
-                      </td>
-                      <td className="vat__mono">{entry.identifier}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className={open ? 'vat__row-button is-open' : 'vat__row-button'}
-                          aria-expanded={open}
-                          aria-label={`Szczegóły ${entry.contractor}`}
-                          onClick={() => dispatch({ type: 'toggleRow', id: entry.id })}
-                        >
-                          <Icon name="chevron" />
-                        </button>
-                      </td>
-                    </tr>
-                    {open ? (
-                      <tr className={correction ? 'vat__detail is-correction' : 'vat__detail'}>
-                        <td colSpan={6}>
-                          <p>
-                            Stawka {entry.rate}. Netto {formatMoney(entry.net)}. VAT {formatMoney(entry.vat)}.
-                            Brutto {formatMoney(entry.gross)}.
-                          </p>
-                          <div className="vat__ops" role="radiogroup" aria-label="Rodzaj operacji">
-                            {rowOperations.map((operation) => {
-                              const selected = entry.operation === operation
-                              return (
-                                <button
-                                  key={operation}
-                                  type="button"
-                                  role="radio"
-                                  className={selected ? 'vat__op-choice is-selected' : 'vat__op-choice'}
-                                  aria-checked={selected}
-                                  onClick={() =>
-                                    setOperations((current) => ({
-                                      ...current,
-                                      [entry.id]: operation,
-                                    }))
-                                  }
-                                >
-                                  {operation}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                )
-              })
+              pageRows.map((entry) => (
+                <RegisterRow
+                  key={entry.id}
+                  entry={entry}
+                  columns={visibleKeys}
+                  choices={operations}
+                  expanded={state.expandedId === entry.id}
+                  onToggle={() => dispatch({ type: 'toggleRow', id: entry.id })}
+                  onOperation={(operation) =>
+                    setOperationOverrides((current) => ({ ...current, [entry.id]: operation }))
+                  }
+                />
+              ))
             )}
           </tbody>
         </table>
       </div>
 
-      <div className="vat__footer">
-        <p aria-live="polite">{rangeLabel}</p>
-        <div className="vat__pager">
-          <button
-            type="button"
-            className="vat__page-button vat__page-button--prev"
-            aria-label="Poprzednia strona"
-            disabled={page <= 1}
-            onClick={() => dispatch({ type: 'page', page: page - 1 })}
-          >
-            <Icon name="chevron" />
-          </button>
-          <span className="vat__page-label">
-            {page} / {pageCount}
-          </span>
-          <button
-            type="button"
-            className="vat__page-button vat__page-button--next"
-            aria-label="Następna strona"
-            disabled={page >= pageCount}
-            onClick={() => dispatch({ type: 'page', page: page + 1 })}
-          >
-            <Icon name="chevron" />
-          </button>
-          <label>
-            <span className="sr-only">Liczba zapisów na stronie</span>
-            <select
-              className="vat__page-size"
-              value={state.pageSize}
-              onChange={(event) =>
-                dispatch({ type: 'pageSize', pageSize: Number(event.target.value) })
-              }
+      {showPager ? (
+        <div className="vat__footer">
+          <p>{range}</p>
+          <div className="vat__pager">
+            <button
+              type="button"
+              className="btn-line"
+              aria-label="Poprzednia strona"
+              disabled={page <= 1}
+              onClick={() => settle(() => dispatch({ type: 'page', page: page - 1 }))}
             >
-              {PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {size} na stronie
-                </option>
-              ))}
-            </select>
-          </label>
+              <Icon name="chevron" />
+            </button>
+            <span>
+              {page} / {pageCount}
+            </span>
+            <button
+              type="button"
+              className="btn-line"
+              aria-label="Następna strona"
+              disabled={page >= pageCount}
+              onClick={() => settle(() => dispatch({ type: 'page', page: page + 1 }))}
+            >
+              <Icon name="chevron" />
+            </button>
+          </div>
+          <div className="vat__page-size">
+            <button
+              type="button"
+              className="btn-line"
+              aria-label="Liczba zapisów na stronie"
+              aria-haspopup="listbox"
+              aria-expanded={pageSizeOpen}
+              onClick={() => {
+                setPageSizeOpen((open) => !open)
+                setMenuOpen(false)
+                setFiltersOpen(false)
+              }}
+            >
+              {state.pageSize} na stronie
+            </button>
+            {pageSizeOpen ? (
+              <div className="vat__page-size-menu" role="listbox" aria-label="Liczba zapisów na stronie">
+                {PAGE_SIZES.map((size) => (
+                  <button
+                    key={size}
+                    type="button"
+                    role="option"
+                    aria-selected={state.pageSize === size}
+                    className={state.pageSize === size ? 'is-selected' : undefined}
+                    onClick={() => {
+                      setPageSizeOpen(false)
+                      settle(() => dispatch({ type: 'pageSize', pageSize: size }))
+                    }}
+                  >
+                    {size} na stronie
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {status.length > 0 ? (
+        <p className="sr-only" role="status">
+          {status}
+        </p>
+      ) : null}
     </section>
+  )
+}
+
+function RegisterRow({
+  entry,
+  columns,
+  choices,
+  expanded,
+  onToggle,
+  onOperation,
+}: {
+  entry: VatEntry
+  columns: readonly SortKey[]
+  choices: readonly VatEntry['operation'][]
+  expanded: boolean
+  onToggle: () => void
+  onOperation: (operation: VatEntry['operation']) => void
+}) {
+  return (
+    <>
+      <tr className={entry.operation === 'Korekta' ? 'is-correction' : undefined}>
+        {columns.map((key) => (
+          <td key={key} data-label={columnLabel(key)} className={`vat__cell vat__cell-${key}`}>
+            {entry[key]}
+          </td>
+        ))}
+        <td className="vat__cell vat__cell-expand" data-label="">
+          <button
+            type="button"
+            className="btn-ghost"
+            aria-expanded={expanded}
+            aria-label={`Szczegóły ${entry.contractor}`}
+            onClick={onToggle}
+          >
+            <Icon name="expand" />
+          </button>
+        </td>
+      </tr>
+      {expanded ? (
+        <tr className="vat__detail-row">
+          <td colSpan={columns.length + 1}>
+            <dl className="vat__detail">
+              <div>
+                <dt>Kontrahent</dt>
+                <dd>{entry.contractor}</dd>
+              </div>
+              <div>
+                <dt>Data</dt>
+                <dd>{entry.date}</dd>
+              </div>
+              <div>
+                <dt>Numer dokumentu</dt>
+                <dd>{entry.documentNumber}</dd>
+              </div>
+              <div>
+                <dt>Numer KSeF</dt>
+                <dd>{entry.ksefStatus}</dd>
+              </div>
+              <div>
+                <dt>Identyfikator</dt>
+                <dd>{entry.identifier}</dd>
+              </div>
+              <div>
+                <dt>Rodzaj operacji</dt>
+                <dd>
+                  <div className="vat__ops" role="radiogroup" aria-label="Rodzaj operacji">
+                    {choices.map((operation) => (
+                      <button
+                        key={operation}
+                        type="button"
+                        role="radio"
+                        className={
+                          entry.operation === operation ? 'vat__op-choice is-selected' : 'vat__op-choice'
+                        }
+                        aria-checked={entry.operation === operation}
+                        onClick={() => onOperation(operation)}
+                      >
+                        {operation}
+                      </button>
+                    ))}
+                  </div>
+                </dd>
+              </div>
+              <div>
+                <dt>Kod JPK V7</dt>
+                <dd>{entry.jpkCode}</dd>
+              </div>
+            </dl>
+            <p>
+              Stawka {entry.rate}. Netto {formatMoney(entry.net)}. VAT {formatMoney(entry.vat)}. Brutto{' '}
+              {formatMoney(entry.gross)}.
+            </p>
+          </td>
+        </tr>
+      ) : null}
+    </>
   )
 }

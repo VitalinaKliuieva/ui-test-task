@@ -23,4 +23,4 @@ export const MONTHS = [
 
 export const YEARS = ['2025', '2026', '2027'] as const
 
-export const PAGE_SIZES = [10, 20, 50] as const
+export const PAGE_SIZES = [10, 25, 50] as const
